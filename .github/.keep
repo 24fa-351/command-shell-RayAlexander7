@@ -1,0 +1,140 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#define MAX_INPUT_SIZE 1024
+#define MAX_ARGS 100
+
+// Function prototypes
+void change_directory(char *path);
+void print_working_directory();
+void set_env_var(char *var, char *value);
+void unset_env_var(char *var);
+void get_env_var(char *var);
+void execute_command(char *command);
+void parse_input(char *input);
+
+int main() {
+    char input[MAX_INPUT_SIZE];
+
+    while (1) {
+        printf("xsh# ");
+        if (fgets(input, MAX_INPUT_SIZE, stdin) == NULL) {
+            break;
+        }
+
+        input[strcspn(input, "\n")] = 0; // Remove the newline character at the end of input
+
+        if (strcmp(input, "quit") == 0 || strcmp(input, "exit") == 0) {
+            break;
+        }
+
+        parse_input(input);
+    }
+
+    return 0;
+}
+
+void change_directory(char *path) {
+    if (chdir(path) == 0) {
+        print_working_directory();
+    } else {
+        perror("Error changing directory");
+    }
+}
+
+void print_working_directory() {
+    char cwd[MAX_INPUT_SIZE];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("Current directory: %s\n", cwd);
+    } else {
+        perror("Error printing working directory");
+    }
+}
+
+void set_env_var(char *var, char *value) {
+    if (setenv(var, value, 1) == 0) {
+        printf("Variable %s set to %s\n", var, value);
+    } else {
+        perror("Error setting environment variable");
+    }
+}
+
+void unset_env_var(char *var) {
+    if (unsetenv(var) == 0) {
+        printf("Variable %s unset\n", var);
+    } else {
+        perror("Error unsetting environment variable");
+    }
+}
+
+void get_env_var(char *var) {
+    char *value = getenv(var);
+    if (value != NULL) {
+        printf("%s = %s\n", var, value);
+    } else {
+        printf("Variable %s not set\n", var);
+    }
+}
+
+void execute_command(char *command) {
+    char *args[MAX_ARGS];
+    char *token;
+    int background = 0;
+    int i = 0;
+
+    // Check if the command is to run in background (ending with &)
+    if (command[strlen(command) - 1] == '&') {
+        background = 1;
+        command[strlen(command) - 1] = '\0'; // Remove the '&'
+    }
+
+    // Tokenize the command into arguments
+    token = strtok(command, " ");
+    while (token != NULL) {
+        args[i++] = token;
+        token = strtok(NULL, " ");
+    }
+    args[i] = NULL; // Null-terminate the argument list
+
+    // Execute the command using fork and execvp
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process
+        if (execvp(args[0], args) == -1) {
+            perror("Error executing command");
+        }
+        exit(1); // Exit if command execution fails
+    } else if (pid < 0) {
+        perror("Error forking");
+    } else {
+        // Parent process, wait if not background process
+        if (!background) {
+            wait(NULL);
+        }
+    }
+}
+
+void parse_input(char *input) {
+    // Parse for setting/unsetting/getting environment variables
+    if (strncmp(input, "set ", 4) == 0) {
+        char *var = strtok(input + 4, " ");
+        char *value = strtok(NULL, " ");
+        if (var && value) {
+            set_env_var(var, value);
+        } else {
+            printf("Invalid set command\n");
+        }
+    } else if (strncmp(input, "unset ", 6) == 0) {
+        unset_env_var(input + 6);
+    } else if (strncmp(input, "echo $", 6) == 0) {
+        get_env_var(input + 6);
+    } else if (strncmp(input, "cd ", 3) == 0) {
+        change_directory(input + 3);
+    } else if (strcmp(input, "pwd") == 0) {
+        print_working_directory();
+    } else {
+        execute_command(input); // For other commands, execute normally
+    }
+}
